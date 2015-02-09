@@ -1,0 +1,586 @@
+<?php
+/**
+ * Implements hook_menu().
+ */
+
+function inventory_forecast_menu() {
+  $menuitems['inventory-forecast-summary'] = array(
+		'title' => t('Inventory Forecast Summary'),
+	    'page callback' => 'inventory_forecast_summary',
+	    'access callback' => TRUE,
+	    'type' => MENU_CALLBACK,
+  );
+  $menuitems['admin/config/system/inventory-forecast'] = array(
+    'title' => 'Inventory Forecast',
+    'description' => 'Configure Email address to send.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('inventory_forecast_admin'),
+    'file' => 'inventory_forecast.pages.inc',
+    'access arguments' => array('administer google analytics agency'),
+  );
+  return $menuitems;
+}
+
+/**
+ * Implement hook_theme().
+ */
+function inventory_forecast_theme(){
+	return array(
+		'inventory_forecast_preview' => array(
+			'variables'=> array('data'=>array(),'time' => array()),
+			'template' => 'inventory_forecast_preview',
+		    ),
+		'inventory_forecast_summary_view' => array(
+			  'variables' => array('time' => NULL),
+			  'template' => 'inventory_forecast_summary_view',
+			),
+		'inventory_forecast_send_mail' => array(
+			      'variables' => array('summary' => NULL),
+			      'template' => 'inventory_forecast_send_mail',
+			 ),
+		'inventory_forecast_send_mail_summary' => array(
+				   'variables' => array('summary' => NULL,'time' =>NULL),
+				   'template' => 'inventory_forecast_send_mail_summary',
+			 ),
+		
+	);
+}
+/**
+ * Implement hook_node_view().
+ */
+function inventory_forecast_node_view($node, $view_mode){
+	if ($node->type == 'inventory_forecast' && $view_mode == 'full') {
+		// get field values 
+		$inventory_field = field_get_items('node', $node, 'inventory_forecast_id');
+		$inventory_id = isset($inventory_field[0]['value']) ? $inventory_field[0]['value'] : 0;
+		$ad_size_field = field_get_items('node', $node, 'inventory_forecast_ad_size');
+		$ad_size_value = isset($ad_size_field[0]['value']) ? $ad_size_field[0]['value'] : 0;
+		$time['start'] = date("Y:m:d",strtotime('first day of next month')).' 00:00:00';
+		$time['end'] = date("Y:m:d",strtotime('last day of next month')).' 23:59:59';
+		$placement_type_field = field_get_items('node', $node, 'inventory_placement_type');
+		$placement_type = isset($placement_type_field[0]['value']) ? $placement_type_field[0]['value'] : 'sponsorship';
+		// get inventory forecast
+	    $node->content['inventory_forecast_preview'] = array(
+	         '#theme' => 'inventory_forecast_preview',
+			 '#data' => inventory_forecast_get_data($inventory_id,$ad_size_value,$time,$placement_type),
+			 '#time' =>$time,
+			 '#weight' => 100,
+	      );
+	    // Add form input date 
+	   	$f = drupal_get_form('inventory_forecast_date_form');
+		$f['#weight'] = -100;
+		$node->content['inventory_forecast_date_input'] = $f;
+	}
+	
+}
+
+/**
+* get data from DFP google
+* return array
+*/
+function inventory_forecast_get_data($inventory_id,$ad_size_value,$time,$placement_type){
+	    // get data from cache if it is available
+		if($cached = cache_get('inventory_forecast_'.$inventory_id.$time['start'].$time['end'].$ad_size_value.$placement_type, 'cache'))  {
+	    	return $cached->data;
+	  	}
+
+		set_include_path('sites/all/libraries/googleads-php-lib-master/src/');
+		$path = libraries_get_path('googleads-php-lib-master');
+	    require_once $path.'/src/Google/Api/Ads/Dfp/Lib/DfpUser.php';
+	    require_once $path.'/src/Google/Api/Ads/Dfp/Util/DateTimeUtils.php';
+	    require_once $path. '/examples/Common/ExampleUtils.php';
+		try {
+		   $oauth2Info = array(
+		    'client_id' => variable_get('dfp_report_client_id'),
+		    'client_secret' => variable_get('dfp_report_client_secret'),
+		    'refresh_token' => variable_get('dfp_report_refresh_token')
+		  );
+		      $applicationName = variable_get('dfp_report_application_name');
+		      $networkCode = variable_get('dfp_report_network_code');
+
+		  // See DfpUser constructor
+		      $user = new DfpUser(NULL, NULL, NULL, $applicationName, $networkCode,
+		      NULL, NULL, $oauth2Info);
+
+		  	 // Log SOAP XML request and response.
+		      $user->LogDefaults();
+
+			// Get the ForecastService.
+			  $forecastService = $user->GetService('ForecastService', 'v201411');
+
+			  // Set the placement ID that the prospective line item will target.
+			  $targetPlacementId = $inventory_id;
+
+			  // Create prospective line item.
+			  $lineItem = new LineItem();
+			  $lineItem->lineItemType = 'STANDARD';
+
+			  // Create inventory targeting.
+			  $inventoryTargeting = new InventoryTargeting();
+			  $inventoryTargeting->targetedPlacementIds = array($targetPlacementId);
+
+			  // Set targeting for line item.
+			  $targeting = new Targeting();
+			  $targeting->inventoryTargeting = $inventoryTargeting;
+			  $lineItem->targeting = $targeting;
+
+			  // Create the creative placeholder.
+			  $creativePlaceholder = new CreativePlaceholder();
+			  $ad_size = explode('x',$ad_size_value);
+			  $creativePlaceholder->size = new Size((int)$ad_size[0], (int)$ad_size[1], FALSE);
+
+			  // Set the size of creatives that can be associated with this line item.
+			  $lineItem->creativePlaceholders = array($creativePlaceholder);
+
+			  // Set the line item's time to be now until the projected end date time.
+			  $lineItem->startDateTime = DateTimeUtils::GetDfpDateTime(new DateTime($time['start']));
+			  $lineItem->endDateTime = DateTimeUtils::GetDfpDateTime(new DateTime($time['end']));
+
+			  // Set the line item to use 50% of the impressions.
+			  $goal = new Goal();
+			  $goal->units = 50;
+			  //$goal->goalType = 'DAILY';
+			  $lineItem->primaryGoal = $goal;
+
+			  // Set the cost type to match the unit type.
+			  $lineItem->costType = 'CPM';
+
+			  // Get forecast for line item.
+			  $forecast = $forecastService->getForecast($lineItem);
+
+			  // Display results.
+			  $matchedUnits = $forecast->matchedUnits;
+			  $unitType = strtolower($forecast->unitType);
+			  $data['matchedUnits'] = $forecast->matchedUnits;
+			  if($matchedUnits!=0){
+				$data['percentAvailableUnits'] = round($forecast->availableUnits * 100 / $matchedUnits,2);
+			  }else{
+				$data['percentAvailableUnits'] = 0;
+			  }
+			  $data['availableUnits'] = $forecast->availableUnits;
+			  $data['unitType'] = strtolower($forecast->unitType);
+			  // Check placement type
+			  if($placement_type == 'sponsorship') {
+				$data['percentAvailableUnits'] = 'Sold Out';
+				if($data['matchedUnits']  == $data['availableUnits']){
+					$data['percentAvailableUnits'] = 'Available';
+				}
+			  }else{
+				$data['percentAvailableUnits'] = $data['percentAvailableUnits'].'%';
+			  }
+              // set the cache for next time
+              cache_set('inventory_forecast_'.$inventory_id.$time['start'].$time['end'].$ad_size_value.$placement_type, $data, 'cache', time() + 60*60*24*5); //5 days 
+		} catch (OAuth2Exception $e) {
+		  drupal_set_message(t('1 %string.', array('%string' => $e->getMessage())), 'error');
+		} catch (ValidationException $e) {
+		  drupal_set_message(t('2 %string.', array('%string' => $e->getMessage())), 'error');
+		} catch (Exception $e) {
+		  drupal_set_message(t('3 %string.', array('%string' => $e->getMessage())), 'error');
+		}
+			
+	    return $data;
+	
+}
+function inventory_forecast_cron(){
+	$lastDateNextMonth =  date("Ymd",strtotime('last day of next month'));
+	$toDay =  date("Ymd",time());
+	$sendDayNote = variable_get('inventory_forecast_node_email');
+	//sending email for each node 
+	if(!isset($sendDayNote)){
+		inventory_forecast_email_node();
+		variable_set('inventory_forecast_node_email',$lastDateNextMonth);
+	}else if($toDay == $sendDayNote){
+		inventory_forecast_email_node();
+		variable_set('inventory_forecast_node_email',$lastDateNextMonth);
+	}
+	//Sending email for seeting page
+	if(date('D', time()) === 'Sun') { //Sun
+		$sendDayWeek = variable_get('inventory_forecast_week_email_send');
+		$time['start'] = date("Y:m:d",strtotime('next week monday')).' 00:00:00';
+		$time['end'] = date("Y:m:d",strtotime('next week sunday')).' 23:59:59';
+		$data['email'] = variable_get('inventory_forecast_email_weekly');
+		if(!isset($sendDayWeek)){
+			inventory_forecast_email_summary($time,$data);
+			variable_set('inventory_forecast_week_email_send',$toDay);
+		}else if($toDay != $sendDayWeek){
+			inventory_forecast_email_summary($time,$data);
+			variable_set('inventory_forecast_week_email_send',$toDay);
+		}
+		
+	}
+	if($lastDateNextMonth == $toDay ) {
+		$sendDayMonth = variable_get('inventory_forecast_month_email_send');
+		$time['start'] = date("Y:m:d",strtotime('first day of next month')).' 00:00:00';
+		$time['end'] = date("Y:m:d",strtotime('last day of next month')).' 23:59:59';
+		$data['email'] = variable_get('inventory_forecast_email_monthly');
+		if(!isset($sendDayMonth)){
+			inventory_forecast_email_summary($time,$data);
+			variable_set('inventory_forecast_month_email_send',$toDay);
+		}else if($toDay != $sendDayMonth){
+			inventory_forecast_email_summary($time,$data);
+			variable_set('inventory_forecast_month_email_send',$toDay);
+		}
+	}
+}
+
+/*
+* get the summary report for all sites
+*/
+function inventory_forecast_summary() {
+	$time['start'] = date("Y:m:d",strtotime('first day of next month')).' 00:00:00';
+	$time['end'] = date("Y:m:d",strtotime('last day of next month')).' 23:59:59';
+	$query = db_select('node', 'n'); 
+	$query->condition('n.type','inventory_forecast');
+	$query->condition('n.status','1');
+	$query->join('field_data_inventory_forecast_id', 'c', 'n.nid = c.entity_id');
+	$query->join('field_data_inventory_forecast_ad_size', 'a', 'a.entity_id = n.nid');
+	$query->join('field_data_impressions_per_spot_per_day', 'i', 'i.entity_id = n.nid');
+	$query->join('field_data_inventory_placement_type', 'p', 'p.entity_id = n.nid');
+	$query->groupBy('n.nid');
+	$query->orderBy('n.title','ASC');
+	$query->fields("c", array("inventory_forecast_id_value"));
+	$query->fields("a", array("inventory_forecast_ad_size_value"));
+	$query->fields("n", array("title"));
+	$query->fields("i", array("impressions_per_spot_per_day_value"));
+	$query->fields("p", array("inventory_placement_type_value"));
+    $results = $query->execute();
+	if (count($results) > 0) {
+		$adName = '';
+		$output = '<div>';
+		$tableHeader = '<table style="width:100%"><tr><th>Name</th><th>Ad Size</th><th>Matched</th><th>Available</th><th>Percent Available</th><th>Spots Available</th></tr>';
+		$tableTail = '</table>';
+		$output .= $tableHeader;
+		//Calculate Spots Available
+		$nextMonth =  date("m",strtotime('next month'));
+		$yearOfNextMonth = date("Y",strtotime('next month'));
+		$numberDaysOfNextMonth = cal_days_in_month(CAL_GREGORIAN, $nextMonth, $yearOfNextMonth );
+
+		foreach ($results as $value) {
+			$placement_type = $value->inventory_placement_type_value;
+			$summary = inventory_forecast_get_data($value->inventory_forecast_id_value,$value->inventory_forecast_ad_size_value,$time,$placement_type);
+			$spotsAvailable =floor($summary['availableUnits']/($numberDaysOfNextMonth*(int)($value->impressions_per_spot_per_day_value)));
+			$output .='<tr><td>'.$value->title .'</td><td>'.$value->inventory_forecast_ad_size_value .'</td><td>'.number_format($summary['matchedUnits']).'</td><td>'.number_format($summary['availableUnits']).'</td> <td>'.$summary['percentAvailableUnits'].'</td><td>'.$spotsAvailable.'</td></tr>';
+				
+		}
+		
+     }
+   $output .= $tableTail;
+   return theme('inventory_forecast_summary_view',array('time' => $time)).$output.'</div>';
+}
+
+/**
+ * Get all placement id for id field.
+ */
+function inventory_forecast_get_all_placement(){
+	set_include_path('sites/all/libraries/googleads-php-lib-master/src/');
+	$path = libraries_get_path('googleads-php-lib-master');
+    require_once $path.'/src/Google/Api/Ads/Dfp/Lib/DfpUser.php';
+    require_once $path.'/src/Google/Api/Ads/Dfp/Util/StatementBuilder.php';
+	try {
+	   $oauth2Info = array(
+	    'client_id' => variable_get('dfp_report_client_id'),
+	    'client_secret' => variable_get('dfp_report_client_secret'),
+	    'refresh_token' => variable_get('dfp_report_refresh_token')
+	  );
+	      $applicationName = variable_get('dfp_report_application_name');
+	      $networkCode = variable_get('dfp_report_network_code');
+
+	  // See DfpUser constructor
+	      $user = new DfpUser(NULL, NULL, NULL, $applicationName, $networkCode,
+	      NULL, NULL, $oauth2Info);
+
+	  	 // Log SOAP XML request and response.
+	      $user->LogDefaults();
+		 // Get the PlacementService.
+		  $placementService = $user->GetService('PlacementService', 'v201411');
+
+		  // Create a statement to select all placements.
+		  $statementBuilder = new StatementBuilder();
+		  $statementBuilder->OrderBy('name ASC')
+		      ->Limit(StatementBuilder::SUGGESTED_PAGE_LIMIT);
+
+		  // Default for total result set size.
+		  $totalResultSetSize = 0;
+
+		  do {
+		    // Get placements by statement.
+		    $page = $placementService->getPlacementsByStatement(
+		        $statementBuilder->ToStatement());
+
+		    // Display results.
+		    if (isset($page->results)) {
+		      $totalResultSetSize = $page->totalResultSetSize;
+		      $i = $page->startIndex;
+		      foreach ($page->results as $placement) {
+		         $options[$placement->id] = $placement->name;
+		      }
+		    }
+
+		    $statementBuilder->IncreaseOffsetBy(StatementBuilder::SUGGESTED_PAGE_LIMIT);
+		  } while ($statementBuilder->GetOffset() < $totalResultSetSize);
+
+		
+		} catch (OAuth2Exception $e) {
+		  drupal_set_message(t('1 %string.', array('%string' => $e->getMessage())), 'error');
+		} catch (ValidationException $e) {
+		  drupal_set_message(t('2 %string.', array('%string' => $e->getMessage())), 'error');
+		} catch (Exception $e) {
+		  drupal_set_message(t('3 %string.', array('%string' => $e->getMessage())), 'error');
+		}
+
+    	if(isset($options)){
+		   return $options;
+        }else{
+	       return NULL;
+        }	
+}
+/**
+* A simple form to get date for forecast
+*/
+function inventory_forecast_date_form($form,&$form_submit){
+	if (arg(0) == 'node' && is_numeric(arg(1))) {
+	  $nid = arg(1);
+	}
+	$form['node_id'] = array(
+		'#type' => 'hidden',
+		'#value' => $nid,
+	);
+	$form['start_date_input'] = array(
+		'#title' => t('Start Date'),
+		'#default_value' => date("Y-m-d",strtotime('first day of next month')).' 00:00:00',
+	    '#date_format' => 'Y:m:d H:i:s',
+	    '#date_year_range' => '0:+2',
+	    '#type' => 'date_popup',
+	    '#weight'=>0,
+	    '#datepicker_options' => array('minDate' => 0),
+	);
+	$form['end_date_input'] = array(
+		'#title' => t('End Date'),
+	    '#date_format' => 'Y:m:d H:i:s',
+	    '#default_value' => date("Y-m-d",strtotime('last day of next month')).' 23:59:59', 
+	    '#date_year_range' => '0:+2',
+	    '#type' => 'date_popup',
+	    '#weight'=>1,
+	    '#datepicker_options' => array('minDate' => 1),
+	);
+	
+	$form['submit'] = array(
+		'#type' => 'submit',
+		'#value' => 'Submit',
+		'#weight'=>2,
+	    '#id' => 'ajax_link',
+	    '#ajax' => array(
+	    'wrapper' => 'inventory_forecast',
+		'callback' => 'inventory_forecast_node_ajax_callback',
+	    'method' => 'html',
+	    ),
+		$form['status'] = array(
+			'#type' => 'markup',
+			'#markup' => '<div id="inventory_forecast_status"></div>',
+			'#weight'=>-1,
+		    ),
+	);
+	return $form;
+}
+/**
+* Validate for  simple form to get date for forecast.
+*/
+function inventory_forecast_date_form_validate($form,&$form_state){
+	$inputTimeStart = strtotime($form_state['values']['start_date_input']);
+	$inputTimeEnd = strtotime($form_state['values']['end_date_input']);
+	if($inputTimeStart < time()){
+		form_set_error('start_date_input','Start time must be greater than current time.');
+	}
+	if($inputTimeEnd < time()){
+		form_set_error('end_date_input','End time must be greater than current time.');
+	}
+	if($inputTimeEnd < $inputTimeStart){
+		form_set_error('end_date_input','End time must be greater than start time.');
+	}
+	
+}
+
+/**
+*  Ajax callback function to get data
+*/
+function inventory_forecast_node_ajax_callback($form, &$form_state){
+	    //load current node, and get inventory forcast
+	    $node = node_load($form_state['values']['node_id']);
+	    $inventory_field = field_get_items('node', $node, 'inventory_forecast_id');
+		$inventory_id = isset($inventory_field[0]['value']) ? $inventory_field[0]['value'] : 0;
+		$ad_size_field = field_get_items('node', $node, 'inventory_forecast_ad_size');
+		$ad_size_value = isset($ad_size_field[0]['value']) ? $ad_size_field[0]['value'] : 0;
+		$time['start'] = $form_state['values']['start_date_input'];
+		$time['end'] = $form_state['values']['end_date_input'];
+		$placement_type_field = field_get_items('node', $node, 'inventory_placement_type');
+		$placement_type = isset($placement_type_field[0]['value']) ? $placement_type_field[0]['value'] : 'sponsorship';
+		$impression_field = field_get_items('node', $node, 'impressions_per_spot_per_day');
+		$impression = isset($impression_field[0]['value']) ? $impression_field[0]['value'] : '50';
+		//check the input time
+		$inputTimeStart = strtotime($time['start'] );
+		$inputTimeEnd = strtotime($time['end']);
+		if($inputTimeStart < time()){
+			$commands[] = ajax_command_html('#inventory_forecast_status', theme('status_messages'));
+		}else if($inputTimeEnd < time()){
+			$commands[] = ajax_command_html('#inventory_forecast_status', theme('status_messages'));
+		}else if($inputTimeEnd < $inputTimeStart){
+			$commands[] = ajax_command_html('#inventory_forecast_status', theme('status_messages'));
+		}else{
+		//get forecast
+		$data = inventory_forecast_get_data($inventory_id,$ad_size_value,$time,$placement_type,$impression);
+	    // Replace info string
+        $replaceData = '<p><strong>Matched:</strong> '. number_format($data['matchedUnits']).'<br>
+	<strong>Available:</strong> '.number_format($data['availableUnits']).'<br>
+	<strong>Percent Available:</strong> '. $data['percentAvailableUnits'].'</p>';
+	    drupal_set_message(t('Success'));
+	    $commands[] = ajax_command_html('#inventory_forecast_status', theme('status_messages'));
+        $commands[] = ajax_command_html('#inventory_forecast', $replaceData );
+        }
+        return array(
+          '#type' => 'ajax',
+          '#commands' => $commands,
+        );
+}
+/**
+* Implement hook_node_validate
+*/
+function inventory_forecast_node_validate($node, $form, &$form_state){
+	if((int)$form_state['values']['impressions_per_spot_per_day']['und'][0]['value'] <= 0){
+		form_set_error('impressions_per_spot_per_day', t('Impressions Per Spot Per Day Field must be an positive integer.'));
+	}
+	 
+}
+
+/**
+* Implement hook_node_alter
+*/
+function inventory_forecast_form_alter(&$form,&$form_state,$form_id){
+	
+}
+
+/**
+ * Implements hook_mail().
+ */
+function inventory_forecast_mail($key, &$message, $params) {
+    switch($key) {
+      case 'notice':
+        $message['headers']['MIME-Version'] = '1.0;';
+      	$message['headers']['Content-Type'] = 'text/html;';
+		$message['headers']['charset'] = 'utf-8;';		
+      	$message['subject'] = $params['subject'];
+      	$message['body'][] = $params['body'];
+      break;
+    }
+}
+function inventory_forecast_process_mail($data){
+		$params['subject'] = 'Inventory Forecast:'.$data['title'];
+		$params['body'] = theme('inventory_forecast_send_mail', array('summary' => $data,'template' => 'dfp_send_mail'));
+    	$to = $data['email'];
+    	$from = 'BCI Interactive Media <ryan@bciinteractive.com>';
+    	$lang = language_default();
+    	drupal_mail('dfp_report', 'notice', $to, $lang, $params, $from);
+		//	echo "hello1";
+}
+
+/**
+* Process email for summary sending
+*/
+function inventory_forecast_process_mail_summary($output,$time,$data){
+		$params['subject'] = 'Inventory Forecast Summary From: '.$time['start']. ' To '.$time['end'];
+		$params['body'] = theme('inventory_forecast_send_mail_summary', array('summary' => $output,'time' => $time,'template' => 'dfp_send_mail'));
+    	$to = $data['email'];
+    	$from = 'BCI Interactive Media <ryan@bciinteractive.com>';
+    	$lang = language_default();
+    	drupal_mail('dfp_report', 'notice', $to, $lang, $params, $from);
+		//	echo "hello1";
+}
+
+/**
+* Sending email for each node
+*/
+function inventory_forecast_email_node(){
+	$query = db_select('node', 'n'); 
+	$query->condition('n.type','inventory_forecast');
+	$query->condition('n.status','1');
+	$query->join('field_data_field_inventory_email', 'e', 'n.nid = e.entity_id');
+	$query->join('field_data_inventory_forecast_id', 'd', 'n.nid = d.entity_id');
+	$query->join('field_data_inventory_forecast_ad_size', 's', 'n.nid = s.entity_id');
+	$query->join('field_data_inventory_placement_type', 'p', 'n.nid = p.entity_id');
+	$query->join('field_data_impressions_per_spot_per_day', 'y', 'n.nid = y.entity_id');
+	$query->groupBy('n.nid');
+	$query->fields("d", array("inventory_forecast_id_value"));
+	$query->fields("n", array("title","nid"));
+	$query->fields("e", array("field_inventory_email_value"));
+	$query->fields("s", array("inventory_forecast_ad_size_value"));
+	$query->fields("p", array("inventory_placement_type_value"));
+    $query->fields("y", array("impressions_per_spot_per_day_value"));
+    $results = $query->execute();
+    if (count($results) > 0) {
+	 foreach ($results as $value) {
+		$inventory_id = $value->inventory_forecast_id_value;
+		$ad_size_value = $value->inventory_forecast_ad_size_value;
+		$placement_type = $value->inventory_placement_type_value;
+		$time['start'] = date("Y:m:d",strtotime('first day of next month')).' 00:00:00';
+		$time['end'] = date("Y:m:d",strtotime('last day of next month')).' 23:59:59';
+		$data = inventory_forecast_get_data($inventory_id,$ad_size_value,$time,$placement_type);
+		$data['start'] = $time['start'];
+		$data['end'] = $time['end'];
+		$data['title'] =$value->title;
+		$data['email'] =$value->field_inventory_email_value;
+		inventory_forecast_process_mail($data);
+		//print_r($data);
+		}
+	}
+}
+
+/**
+* Sending email for setting page
+*/
+function inventory_forecast_email_summary($time,$data){
+	$query = db_select('node', 'n'); 
+	$query->condition('n.type','inventory_forecast');
+	$query->condition('n.status','1');
+	$query->join('field_data_inventory_forecast_id', 'c', 'n.nid = c.entity_id');
+	$query->join('field_data_inventory_forecast_ad_size', 'a', 'a.entity_id = n.nid');
+	$query->join('field_data_impressions_per_spot_per_day', 'i', 'i.entity_id = n.nid');
+	$query->join('field_data_inventory_placement_type', 'p', 'p.entity_id = n.nid');
+	$query->groupBy('n.nid');
+	$query->orderBy('n.title','ASC');
+	$query->fields("c", array("inventory_forecast_id_value"));
+	$query->fields("a", array("inventory_forecast_ad_size_value"));
+	$query->fields("n", array("title"));
+	$query->fields("i", array("impressions_per_spot_per_day_value"));
+	$query->fields("p", array("inventory_placement_type_value"));
+    $results = $query->execute();
+	if (count($results) > 0) {
+		$adName = '';
+		$output = '<div>';
+		$tableHeader = '<table style="width:100%"><tr style="background: #ccc;"><th>Name</th><th>Ad Size</th><th>Matched</th><th>Available</th><th>Percent Available</th><th>Spots Available</th></tr>';
+		$tableTail = '</table>';
+		$output .= $tableHeader;
+		//Calculate Spots Available
+		$nextMonth =  date("m",strtotime('next month'));
+		$yearOfNextMonth = date("Y",strtotime('next month'));
+		$numberDaysOfNextMonth = cal_days_in_month(CAL_GREGORIAN, $nextMonth, $yearOfNextMonth );
+        $row = TRUE;
+		foreach ($results as $value) {
+			$placement_type = $value->inventory_placement_type_value;
+			$summary = inventory_forecast_get_data($value->inventory_forecast_id_value,$value->inventory_forecast_ad_size_value,$time,$placement_type);
+			$spotsAvailable =floor($summary['availableUnits']/($numberDaysOfNextMonth*(int)($value->impressions_per_spot_per_day_value)));
+			if($row == TRUE){
+				$output .='<tr style="background: #e4e4e4;padding:2px 0;"><td>'.$value->title .'</td><td>'.$value->inventory_forecast_ad_size_value .'</td><td>'.number_format($summary['matchedUnits']).'</td><td>'.number_format($summary['availableUnits']).'</td> <td>'.$summary['percentAvailableUnits'].'</td><td>'.$spotsAvailable.'</td></tr>';
+				$row = FALSE;
+			}else if($row == FALSE){
+				$output .='<tr style="background: #efefef;padding:2px 0;" ><td>'.$value->title .'</td><td>'.$value->inventory_forecast_ad_size_value .'</td><td>'.number_format($summary['matchedUnits']).'</td><td>'.number_format($summary['availableUnits']).'</td> <td>'.$summary['percentAvailableUnits'].'</td><td>'.$spotsAvailable.'</td></tr>';
+				$row = TRUE;
+			}	
+		}
+		
+     }
+   $output .= $tableTail;
+  //sending mail
+  
+  inventory_forecast_process_mail_summary($output,$time,$data);
+
+   return $output;
+}

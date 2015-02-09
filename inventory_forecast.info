@@ -1,0 +1,4 @@
+name = DFP Inventory Forcast
+description = DFP Inventory Forcast
+core = 7.x
+dependencies[] = dfp_report

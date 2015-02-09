@@ -1,0 +1,346 @@
+<?php
+/**
+ * @file
+ * DFP Report installation
+ */
+
+/**
+ * Implements hook_schema().
+ */
+
+function inventory_forecast_schema() {
+  $schema = array();
+  $schema['inventory_forecast_node_send'] = array(
+    'fields' => array(
+      'nid' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+      ),
+      'last_send' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+    ),
+    'primary key' => array('nid'),
+  );
+  return $schema;
+}
+
+
+/**
+ * Implements hook_install().
+ */
+function inventory_forecast_install() {
+// array list from 1 to 100
+for ($i = 1; $i <= 100; $i++) {
+    $optionList[$i] = $i;
+} 
+
+
+// Get Placement id for select field
+$placement_id = inventory_forecast_get_all_placement();
+if(isset($placement_id)){
+	variable_set('placement_id',$placement_id);
+}
+//create content type
+  $t = get_t();
+  $type = array(
+    'type' => 'inventory_forecast',
+    'name' => $t('Inventory'),
+    'base' => 'node_content',
+    'title_label' => $t('Name'),
+    'description' => $t('Inventory Forecast Name'),
+    'custom' => 1,
+    'modified' => 1,
+    'locked' => 0,
+  );
+
+  $type = node_type_set_defaults($type);
+  node_type_save($type);
+
+  // Create fields.
+  $fields = array(
+	array(
+      'field_name' => 'field_inventory_email',
+      'type' => 'text',
+      'cardinality' => 1,
+      'translatable' => TRUE,
+      'settings' => array(
+        'max_length' => 250,
+      ),
+      'entity_types' => array(),
+    ),
+	array(
+      'field_name' => 'inventory_forecast_id',
+      'type' => 'list_text',
+      'cardinality' => 1,
+      'translatable' => TRUE,
+      'locked' => FALSE,
+      'module' => 'list',
+      'settings' => array(
+		'allowed_values' =>$placement_id,
+      ),
+    ),
+	array(
+	  'field_name' => 'inventory_forecast_ad_size',
+	   'type' => 'list_text',
+	   'cardinality' => 1,
+	   'translatable' => TRUE,
+	   'locked' => FALSE,
+	   'module' => 'list',
+	    'settings' => array(
+	        'allowed_values' => array(
+	          	'160x600' => $t('160 X 600'),
+			    '180x150' => $t('180 X 150'),
+			    '220x60'  => $t('220 X 60'),
+		        '300x100' => $t('300 X 100'),
+		        '300x250' => $t('300 X 250'),
+		        '468x60'  => $t('468 X 60'),
+		        '728x90' => $t('728 X 90'),
+		        '970x30' => $t('970 X 30'),
+	        ),
+	        'allowed_values_function' => '',
+	      ),
+	      'storage' => array(
+	        'type' => 'field_sql_storage',
+	        'settings' => array(),
+	      ),
+	    ),
+		array(
+		  'field_name' => 'inventory_placement_type',
+		   'type' => 'list_text',
+		   'cardinality' => 1,
+		   'translatable' => TRUE,
+		   'locked' => FALSE,
+		   'module' => 'list',
+		    'settings' => array(
+		        'allowed_values' => array(
+		          	'sponsorship' => $t('Sponsorship'),
+				    'cpm' => $t('CPM'),
+		        ),
+		        'allowed_values_function' => '',
+		      ),
+		      'storage' => array(
+		        'type' => 'field_sql_storage',
+		        'settings' => array(),
+		      ),
+		    ),
+			array(
+			  'field_name' => 'impressions_per_spot_per_day',
+		      'type' => 'number_integer',
+		      'cardinality' => 1,
+		      'translatable' => TRUE,
+		      'settings' => array(
+		        'max_length' => 3,
+		      ),
+		      'entity_types' => array(),
+		    ),
+  );
+  foreach ($fields as $field) {
+    field_create_field($field);
+  }
+
+// Create Field Instances.
+  $instances = array();
+  $instances['field_inventory_email'] = array(
+    'field_name' => 'field_inventory_email',
+    'entity_type' => 'node',
+    'bundle' => 'inventory_forecast',
+    'label' => $t('Report Emails'),
+    'required' => FALSE,
+    'description' => $t('Enter email address for report,eg: tom@example.com;john@example.com.'),
+    'widget' => array(
+      'type' => 'text_textfield',
+      'settings' => array(
+        'size' => 60,
+      ),
+      'weight' => 59,
+    ),
+    'settings' => array(
+      'text_processing' => 0,
+    ),
+    'display' => array(
+      'default' => array(
+        'label' => 'inline',
+        'type' => 'text_default',
+        'settings' => array(),
+      ),
+    ),
+  );
+
+  $instances['inventory_forecast_id'] = array(
+    'field_name' => 'inventory_forecast_id',
+    'entity_type' => 'node',
+    'bundle' => 'inventory_forecast',
+    'label' => $t('ID'),
+    'required' => TRUE,
+	'settings' => array(
+	  'allowed_values' =>$placement_id,
+      'user_register_form' => FALSE,
+     ),
+	'user_register_form' => FALSE,
+    'widget' => array(
+      'active' => 1,
+      'type' => 'options_select',
+      'weight' => 0,
+      'module' => 'list',
+    ),
+    'display' => array(
+      'default' => array(
+        'label' => 'inline',
+        'type' => 'list_default',
+        'module' => 'list',
+        'weight' => -1,
+      ),
+    'teaser' => array(
+       'label' => 'hidden',
+        'type' => 'list_default',
+        'module' => 'list',
+        'weight' => -1,
+      ),
+    ),
+  );
+$instances['inventory_forecast_ad_size'] = array(
+    'field_name' => 'inventory_forecast_ad_size',
+    'entity_type' => 'node',
+    'label' => $t('Ad Size'),
+    'bundle' => 'inventory_forecast',
+    'description' => $t('Please select size.'),
+    'required' => TRUE,
+	'weight' => 50,
+    'default_value' => array(
+      0 => array(
+        'value' => '300x100',
+      ),
+    ),
+    'settings' => array(
+      'allowed_values'  => array(
+	    '160x600' => $t('160 X 600'),
+	    '180x150' => $t('180 X 150'),
+	    '220x60'  => $t('220 X 60'),
+        '300x100' => $t('300 X 100'),
+        '300x250' => $t('300 X 250'),
+        '468x60'  => $t('468 X 60'),
+        '728x90' => $t('728 X 90'),
+        '970x30' => $t('970 X 30'),
+      ),
+      'user_register_form' => FALSE,
+    ),
+    'user_register_form' => FALSE,
+    'widget' => array(
+      'active' => 1,
+      'type' => 'options_select',
+      'weight' => 50,
+      'module' => 'list',
+    ),
+
+    'display' => array(
+      'default' => array(
+        'label' => 'inline',
+        'type' => 'list_default',
+        'module' => 'list',
+        'weight' => 50,
+      ),
+      'teaser' => array(
+        'label' => 'inline',
+        'type' => 'list_default',
+        'module' => 'list',
+        'weight' => 50,
+      ),
+    ),
+  );
+
+$instances['inventory_placement_type'] = array(
+    'field_name' => 'inventory_placement_type',
+    'entity_type' => 'node',
+    'label' => $t('Placement Type'),
+    'bundle' => 'inventory_forecast',
+    'description' => $t('Placement type of inventory forecast.'),
+    'required' => TRUE,
+	'weight' => 49,
+    'default_value' => array(
+      0 => array(
+        'value' => 'sponsorship',
+      ),
+    ),
+    'settings' => array(
+      'allowed_values'  => array(
+        	'sponsorship' => $t('Sponsorship'),
+		    'cpm' => $t('CPM'),
+      ),
+      'user_register_form' => FALSE,
+    ),
+    'user_register_form' => FALSE,
+    'widget' => array(
+      'active' => 1,
+      'type' => 'options_select',
+      'weight' => 49,
+      'module' => 'list',
+    ),
+
+    'display' => array(
+      'default' => array(
+        'label' => 'inline',
+        'type' => 'list_default',
+        'module' => 'list',
+        'weight' => 49,
+      ),
+      'teaser' => array(
+        'label' => 'inline',
+        'type' => 'list_default',
+        'module' => 'list',
+        'weight' => 49,
+      ),
+    ),
+  );
+
+ $instances['impressions_per_spot_per_day'] = array(
+    'field_name' => 'impressions_per_spot_per_day',
+    'entity_type' => 'node',
+    'bundle' => 'inventory_forecast',
+    'label' => $t('Impressions Per Spot Per Day'),
+    'required' => TRUE,
+    'description' => $t('Enter an integer for this field'),
+    'widget' => array(
+      'type' => 'number_integer',
+      'settings' => array(
+        'size' => 3,
+      ),
+      'weight' => 59,
+    ),
+    'settings' => array(
+      'text_processing' => 0,
+    ),
+    'display' => array(
+      'default' => array(
+        'label' => 'inline',
+        'type' => 'text_default',
+        'settings' => array(),
+      ),
+    ),
+  );
+
+  foreach ($instances as $instance) {
+    $instance['entity_type'] = 'node';
+    $instance['bundle'] = 'inventory_forecast';
+    field_create_instance($instance);
+  }
+
+}
+
+
+
+/**
+ * Implements hook_uninstall().
+ */
+function inventory_forecast_uninstall() {
+  field_delete_field('field_inventory_email');
+  field_delete_field('impressions_per_spot_per_day');
+  field_delete_field('inventory_placement_type');
+  field_delete_field('inventory_forecast_ad_size');
+  field_delete_field('inventory_forecast_id');
+  node_type_delete('inventory_forecast');
+}
+
+
