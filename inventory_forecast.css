@@ -1,0 +1,17 @@
+.container-inline-date {
+float: left !important;
+clear: none !important;
+}
+.form-item-start-date-input{
+	display:block;
+	width:30%;
+	float:left !important;
+}
+.form-item-end-date-input{
+	display:block;
+	width:30%;
+	float:left !important;
+}
+input#ajax_link {
+margin-top:4em;
+}
