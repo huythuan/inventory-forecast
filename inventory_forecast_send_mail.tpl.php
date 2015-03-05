@@ -12,12 +12,19 @@
 	<table style="width:100%">
     <tr style="background: #e4e4e4;">
       <th style ="width:30%;padding:2px 0;"><?php print t('Matched'); ?></th>
-      <td style ="width:20%;padding:2px 0;"><?php print number_format($summary['matchedUnits']); ?></td>
-
+       <td style ="width:20%;padding:2px 0;">
+       <?php if (strpos($summary['percentAvailableUnits'],'%') !== false): ?>
+           <?php print number_format($summary['matchedUnits']); ?>
+       <?php endif; ?>
+       </td>
     </tr>
     <tr style="background: #efefef;">
 	  <th style ="width:20%;padding:2px 0;"><?php print t('Available'); ?></th>
-      <td style ="width:20%;padding:2px 0;"><?php print number_format($summary['availableUnits']); ?></td>
+	  <td style ="width:20%;padding:2px 0;">
+	  <?php if (strpos($summary['percentAvailableUnits'],'%') !== false): ?>
+       <?php print number_format($summary['availableUnits']); ?>
+      <?php endif; ?>
+       </td>
     </tr>
     <tr style="background: #e4e4e4;">
       <th style ="width:20%;padding:2px 0;"><?php print t('Percent Available'); ?></th>
