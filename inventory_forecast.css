@@ -15,3 +15,8 @@ clear: none !important;
 input#ajax_link {
 margin-top:4em;
 }
+.send_mail_summary {
+	display: block;
+	width: 100%;
+	clear: both;
+}
